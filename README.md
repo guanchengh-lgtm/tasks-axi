@@ -109,6 +109,10 @@ tasks-axi update nm-release-validation --body "rewritten notes"
 tasks-axi update nm-release-validation --body-file notes.md --archive-body
 tasks-axi update nm-release-validation --title "clearer title"
 
+# guard a body rewrite against a concurrent writer (compare-and-set)
+tasks-axi show nm-release-validation --json      # copy body_sha256
+tasks-axi update nm-release-validation --body-file notes.md --expect-body-sha256 <body_sha256>
+
 # read the full notes on demand (truncated by default)
 tasks-axi show homemux-h7 --full
 
@@ -124,6 +128,7 @@ Output is [TOON](https://toonformat.dev)-encoded and token-efficient.
 The long task body is truncated by default — the whole point is that `list` stays cheap; use `--full` only when you need the complete notes.
 `update --body` and `update --body-file` replace the body wholesale, so agents should inspect the current body first and write back the curated current state rather than appending a journal entry.
 `--archive-body` preserves the replaced body in `note-archive.md` using the same dated markdown archive block style as done pruning.
+`show <id> --json` prints the full task with a `body_sha256` of its current body; pass that value as `update --expect-body-sha256 <hex>` and the write is refused with a `CONFLICT` error if another writer changed the body in between, so re-read and retry.
 Every write leads with a terse `ok:` line confirming the write result, including the resulting task state when the command changes one (e.g. `ok: start lavish-share -> In flight`, `ok: done grok-harness-g7 -> Done (pr <url>)`, `ok: render -> normalized 3`), followed by state-aware next-step hints that never suggest an action the command just performed.
 Mutations are idempotent and report what changed (`already: true` on a no-op), so re-running one is safe.
 Running `done` again on an already Done task can still backfill a new `--pr`, `--report`, or `--note` without changing the original close date.
@@ -168,7 +173,9 @@ A posted receipt file records `state=posted`, request id, platform, attempt and 
 Its attempt count must exactly match the currently recorded delivery attempt, including late receipts that reconcile that same attempt from `unknown` or `partial`.
 An error file records the current attempt count, a safe delivery state, validated error code, occurrence time, optional retry time, and optional chunk counts.
 Its attempt count must exactly match the currently recorded delivery attempt, and stale or future-attempt errors fail without mutation.
-Expected-final types permit only their matching safe deliverables: `pr_url`, `report_path`, `commit_sha`, or `error_code`.
+Events that match the expected-final type permit only its matching safe deliverables: `pr_url`, `report_path`, `commit_sha`, or `error_code`; a failed event on another expected-final type may instead carry at most one safe `error_code`.
+A required relation whose bound work reports `failed` is terminal and deliverable for any expected-final type, not only `failure-outcome`: the accepted event's `public_safe_outcome` is the honest text to deliver.
+An obligation an older version parked in `pending-work` because its failed relation was not yet deliverable is read back as `ready`; any other stale `delivery.state` is still a hard validation error.
 Run `tasks-axi public-followup --help` for the exact file-backed command surface and state names.
 
 Each mutation is idempotent and returns the monotonic obligation `revision`, changed fields, and complete typed payload under `--json`.
